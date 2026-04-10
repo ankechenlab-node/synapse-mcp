@@ -1,7 +1,8 @@
 """MCP Tools: Pipeline execution with progress reporting via Tasks API."""
 
-import subprocess
 import asyncio
+import json as _json
+import re
 from pathlib import Path
 
 from fastmcp import FastMCP, Context
@@ -15,6 +16,9 @@ PIPELINE_STAGES = [
     {"name": "QA", "description": "Quality Assurance — Test and validate"},
     {"name": "DEPLOY", "description": "Deploy — Package and deliver"},
 ]
+
+_VALID_PROJECT_RE = re.compile(r'^[a-zA-Z0-9_-]+$')
+_VALID_STAGES = {s["name"] for s in PIPELINE_STAGES}
 
 # Default pipeline workspace — user should override via config
 _DEFAULT_WORKSPACE = Path.home() / "pipeline-workspace"
@@ -50,6 +54,16 @@ def register_pipeline_tools(mcp: FastMCP):
             stage: Starting stage (REQ, ARCH, DEV, INT, QA, DEPLOY)
             workspace: Pipeline workspace directory (default: ~/pipeline-workspace)
         """
+        # Validate inputs
+        if not _VALID_PROJECT_RE.match(project):
+            return f"Invalid project name: '{project}'. Use only letters, numbers, hyphens, and underscores"
+
+        if stage not in _VALID_STAGES:
+            return f"Invalid stage: '{stage}'. Valid stages: {', '.join(sorted(_VALID_STAGES))}"
+
+        if not requirement or not requirement.strip():
+            return "Requirement is required"
+
         ws = Path(workspace).expanduser() if workspace else _DEFAULT_WORKSPACE
 
         if not ws.exists():
@@ -78,26 +92,27 @@ def register_pipeline_tools(mcp: FastMCP):
             await ctx.report_progress(progress=0, total=6, message=f"Starting pipeline: {stage}")
 
         try:
-            result = subprocess.run(
-                cmd,
+            # Use async subprocess to avoid blocking the event loop
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
                 cwd=ws,
-                capture_output=True,
-                text=True,
-                timeout=600,  # 10 min timeout
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
 
             if ctx:
                 await ctx.report_progress(progress=6, total=6, message="Pipeline complete")
 
-            if result.returncode == 0:
-                return f"Pipeline completed for '{project}':\n{result.stdout}"
+            if proc.returncode == 0:
+                return f"Pipeline completed for '{project}':\n{stdout.decode()}"
             else:
                 return (
                     f"Pipeline failed for '{project}'\n"
-                    f"Exit code: {result.returncode}\n"
-                    f"Stderr: {result.stderr[:500]}"
+                    f"Exit code: {proc.returncode}\n"
+                    f"Stderr: {stderr.decode()[:500]}"
                 )
-        except subprocess.TimeoutExpired:
+        except asyncio.TimeoutError:
             return (
                 f"Pipeline timed out for '{project}' (10 min limit).\n"
                 f"Check progress manually in: {ws}/{project}/"
@@ -122,6 +137,9 @@ def register_pipeline_tools(mcp: FastMCP):
             project: Project name
             workspace: Pipeline workspace directory
         """
+        if not _VALID_PROJECT_RE.match(project):
+            return f"Invalid project name: '{project}'"
+
         ws = Path(workspace).expanduser() if workspace else _DEFAULT_WORKSPACE
         project_dir = ws / project
 
@@ -131,12 +149,14 @@ def register_pipeline_tools(mcp: FastMCP):
         # Check for pipeline state files
         status_file = project_dir / ".pipeline" / "status.json"
         if status_file.exists():
-            with open(status_file) as f:
-                import json
-                state = json.load(f)
+            try:
+                with open(status_file) as f:
+                    state = _json.load(f)
                 current = state.get("current_stage", "unknown")
                 status = state.get("status", "unknown")
                 return f"Pipeline '{project}':\n  Stage: {current}\n  Status: {status}"
+            except (_json.JSONDecodeError, IOError):
+                return f"Pipeline '{project}': Status file corrupted"
 
         # Fallback: check which stage outputs exist
         stages_completed = []
@@ -146,11 +166,11 @@ def register_pipeline_tools(mcp: FastMCP):
                 stages_completed.append(stage_info["name"])
 
         if stages_completed:
+            next_stage = _next_stage(stages_completed[-1])
             return (
                 f"Pipeline '{project}' progress:\n"
                 f"  Completed stages: {', '.join(stages_completed)}\n"
-                f"  Next stage: {stages_completed[-1]} → "
-                f"{_next_stage(stages_completed[-1])}"
+                f"  Next stage: {stages_completed[-1]} → {next_stage}"
             )
         return f"Pipeline '{project}': No runs detected"
 

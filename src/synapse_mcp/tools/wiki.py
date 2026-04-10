@@ -1,10 +1,13 @@
 """MCP Tools: Wiki knowledge management (init, ingest, query, lint)."""
 
-import subprocess
+import re
 from pathlib import Path
 
 from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+
+# Max file size for ingest (10MB)
+_MAX_INGEST_SIZE = 10 * 1024 * 1024
 
 # Wiki script paths — resolved at runtime
 _WIKI_SCRIPTS = Path.home() / ".claude" / "skills" / "synapse-wiki" / "scripts"
@@ -38,8 +41,23 @@ def register_wiki_tools(mcp: FastMCP):
             path: Directory path for the wiki
             name: Wiki display name
         """
-        target = Path(path).expanduser()
+        target = Path(path).expanduser().resolve()
+
+        # Reject if path is an existing file
+        if target.exists() and not target.is_dir():
+            return f"Error: '{path}' is a file, not a directory"
+
         target.mkdir(parents=True, exist_ok=True)
+
+        # Don't overwrite existing wiki files
+        core_files = ["CLAUDE.md", "index.md", "log.md"]
+        existing = [f for f in core_files if (target / f).exists()]
+        if existing:
+            return (
+                f"Wiki already initialized at: {target}\n"
+                f"Existing files: {', '.join(existing)}\n"
+                f"Use wiki_ingest to add content instead."
+            )
 
         # Create core wiki files
         (target / "CLAUDE.md").write_text(f"# {name}\n\nKnowledge base for {name}.\n")
@@ -49,7 +67,7 @@ def register_wiki_tools(mcp: FastMCP):
         return (
             f"Wiki initialized at: {target}\n"
             f"Name: {name}\n"
-            f"Files created: CLAUDE.md, index.md, log.md"
+            f"Files created: {', '.join(core_files)}"
         )
 
     @mcp.tool(annotations=ToolAnnotations(
@@ -74,7 +92,7 @@ def register_wiki_tools(mcp: FastMCP):
             source: File path, directory, or raw text to ingest
             source_type: Type of source (file, directory, text)
         """
-        wiki_path = Path(path).expanduser()
+        wiki_path = Path(path).expanduser().resolve()
         if not (wiki_path / "CLAUDE.md").exists():
             return f"Not a valid wiki: {path}. Run wiki_init first."
 
@@ -91,6 +109,9 @@ def register_wiki_tools(mcp: FastMCP):
             return f"Source not found: {source}"
 
         if source_path.is_file():
+            # Check file size
+            if source_path.stat().st_size > _MAX_INGEST_SIZE:
+                return f"File too large: {source_path.name} ({source_path.stat().st_size / 1024 / 1024:.1f}MB > 10MB limit)"
             content = source_path.read_text()
             log_file = wiki_path / "log.md"
             with open(log_file, "a") as f:
@@ -103,8 +124,12 @@ def register_wiki_tools(mcp: FastMCP):
             log_file = wiki_path / "log.md"
             with open(log_file, "a") as f:
                 for fp in files[:20]:
-                    f.write(f"\n## Ingested: {fp.name}\n\n{fp.read_text()[:200]}...\n")
-                    count += 1
+                    try:
+                        content = fp.read_text()
+                        f.write(f"\n## Ingested: {fp.name}\n\n{content[:200]}...\n")
+                        count += 1
+                    except (IOError, UnicodeDecodeError):
+                        continue  # skip unreadable files
             return f"Directory ingested: {count} files from {source_path}"
 
         return f"Unsupported source type: {source}"
@@ -125,19 +150,26 @@ def register_wiki_tools(mcp: FastMCP):
             path: Wiki root directory
             question: Natural language question
         """
-        wiki_path = Path(path).expanduser()
+        wiki_path = Path(path).expanduser().resolve()
         if not (wiki_path / "CLAUDE.md").exists():
             return f"Not a valid wiki: {path}. Run wiki_init first."
 
-        # Search knowledge files
+        # Search knowledge files with improved snippet extraction
         results = []
-        for md_file in wiki_path.glob("*.md"):
-            content = md_file.read_text()
-            # Simple keyword match — in production, use embeddings
-            keywords = question.lower().split()
+        keywords = question.lower().split()
+        max_files = 50  # limit to avoid OOM on large wikis
+        for i, md_file in enumerate(wiki_path.glob("*.md")):
+            if i >= max_files:
+                break
+            try:
+                content = md_file.read_text()
+            except (IOError, UnicodeDecodeError):
+                continue
             score = sum(1 for kw in keywords if kw in content.lower())
             if score > 0:
-                results.append((score, md_file.name, content[:300]))
+                # Extract a better snippet around the first keyword match
+                snippet = _extract_snippet(content, keywords, limit=400)
+                results.append((score, md_file.name, snippet))
 
         if not results:
             return (
@@ -169,7 +201,7 @@ def register_wiki_tools(mcp: FastMCP):
         Args:
             path: Wiki root directory
         """
-        wiki_path = Path(path).expanduser()
+        wiki_path = Path(path).expanduser().resolve()
         if not wiki_path.exists():
             return f"Directory not found: {path}"
 
@@ -191,8 +223,11 @@ def register_wiki_tools(mcp: FastMCP):
 
         # Check for broken internal links
         for md_file in wiki_path.glob("*.md"):
-            content = md_file.read_text()
-            import re
+            try:
+                content = md_file.read_text()
+            except (IOError, UnicodeDecodeError):
+                issues.append(f"Unreadable file: {md_file.name}")
+                continue
             links = re.findall(r'\[([^\]]+)\]\(([^)]+)\)', content)
             for text, url in links:
                 if url.startswith("http"):
@@ -214,3 +249,28 @@ def register_wiki_tools(mcp: FastMCP):
             lines.append("\nNo issues found.")
 
         return "\n".join(lines)
+
+
+def _extract_snippet(content: str, keywords: list[str], limit: int = 400) -> str:
+    """Extract a relevant snippet around the first keyword match."""
+    lower = content.lower()
+    positions = []
+    for kw in keywords:
+        pos = lower.find(kw)
+        if pos >= 0:
+            positions.append(pos)
+
+    if not positions:
+        return content[:limit]
+
+    # Use the earliest match
+    start = min(positions)
+    # Expand around the match
+    snippet_start = max(0, start - 50)
+    snippet_end = min(len(content), start + limit)
+    snippet = content[snippet_start:snippet_end]
+    if snippet_start > 0:
+        snippet = "..." + snippet
+    if snippet_end < len(content):
+        snippet += "..."
+    return snippet

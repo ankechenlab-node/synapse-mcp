@@ -6,8 +6,23 @@ Stores state in ~/.synapse/state-{project}.json
 """
 
 import json
+import os
+import re
+import tempfile
 from datetime import datetime
 from pathlib import Path
+
+# Valid project name pattern: alphanumeric, hyphens, underscores
+_PROJECT_RE = re.compile(r'^[a-zA-Z0-9_-]+$')
+
+
+def _validate_project(project: str) -> str | None:
+    """Validate project name. Returns error message or None if valid."""
+    if not project or not project.strip():
+        return "Project name is required"
+    if not _PROJECT_RE.match(project):
+        return f"Invalid project name: '{project}'. Use only letters, numbers, hyphens, and underscores"
+    return None
 
 
 class StateManager:
@@ -23,8 +38,28 @@ class StateManager:
     def _state_file(self, project: str) -> Path:
         return self.state_dir / f"state-{project}.json"
 
-    def create_session(self, project: str, title: str, mode: str = "standalone") -> dict:
-        """Create a new session state."""
+    def _atomic_save(self, path: Path, data: dict):
+        """Write to a temp file, then atomically rename. Prevents corruption on crash."""
+        fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            os.replace(tmp, path)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+
+    def create_session(self, project: str, title: str, mode: str = "standalone") -> dict | str:
+        """Create a new session state. Returns state dict or error message."""
+        err = _validate_project(project)
+        if err:
+            return err
+        if not title or not title.strip():
+            return "Session title is required"
+
         state = {
             "project": project,
             "title": title,
@@ -39,28 +74,36 @@ class StateManager:
         return state
 
     def get_session(self, project: str) -> dict | None:
-        """Get session state, or None if not exists."""
+        """Get session state, or None if not exists or corrupted."""
         state_file = self._state_file(project)
         if not state_file.exists():
             return None
-        with open(state_file) as f:
-            return json.load(f)
+        try:
+            with open(state_file) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return None
 
-    def update_session(self, project: str, updates: dict) -> dict:
+    def update_session(self, project: str, updates: dict) -> dict | None:
         """Update session state with new fields."""
         state = self.get_session(project)
         if not state:
             state = self.create_session(project, updates.get("title", project))
+            if isinstance(state, str):  # error message
+                return None
         state.update(updates)
         state["updated_at"] = datetime.now().isoformat()
         self._save(project, state)
         return state
 
-    def add_task(self, project: str, task: dict) -> dict:
+    def add_task(self, project: str, task: dict) -> dict | None:
         """Add a task to the session."""
         state = self.get_session(project)
         if not state:
-            state = self.create_session(project, project)
+            result = self.create_session(project, project)
+            if isinstance(result, str):
+                return None
+            state = result
         if "tasks" not in state:
             state["tasks"] = []
         state["tasks"].append(task)
@@ -92,11 +135,14 @@ class StateManager:
         return None
 
     def list_sessions(self) -> list[dict]:
-        """List all session states."""
+        """List all session states, skipping corrupted files."""
         sessions = []
         for f in sorted(self.state_dir.glob("state-*.json")):
-            with open(f) as fh:
-                sessions.append(json.load(fh))
+            try:
+                with open(f) as fh:
+                    sessions.append(json.load(fh))
+            except (json.JSONDecodeError, IOError):
+                continue  # skip corrupted file
         return sessions
 
     def archive_session(self, project: str) -> dict | None:
@@ -110,6 +156,5 @@ class StateManager:
         return state
 
     def _save(self, project: str, state: dict):
-        """Save state to disk."""
-        with open(self._state_file(project), "w") as f:
-            json.dump(state, f, indent=2, ensure_ascii=False)
+        """Atomically save state to disk."""
+        self._atomic_save(self._state_file(project), state)

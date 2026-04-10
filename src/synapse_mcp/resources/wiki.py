@@ -1,9 +1,13 @@
 """MCP Resources: Wiki pages and session state via URI."""
 
 import json
+import re
 from pathlib import Path
 
 from fastmcp import FastMCP
+
+# Valid project name pattern
+_PROJECT_RE = re.compile(r'^[a-zA-Z0-9_-]+$')
 
 
 def register_resources(mcp: FastMCP):
@@ -15,9 +19,14 @@ def register_resources(mcp: FastMCP):
 
         URI: wiki://CLAUDE.md, wiki://index.md, wiki://concepts/xyz.md
         """
-        root = Path(wiki_root).expanduser()
-        target = root / path
-        if not target.exists():
+        root = Path(wiki_root).expanduser().resolve()
+        target = (root / path).resolve()
+
+        # Prevent path traversal
+        if not str(target).startswith(str(root)):
+            return "Access denied: path traversal not allowed"
+
+        if not target.is_file():
             return f"Page not found: wiki://{path}\nRoot: {root}"
         return target.read_text()
 
@@ -27,12 +36,19 @@ def register_resources(mcp: FastMCP):
 
         URI: state://my-project
         """
+        # Validate project name to prevent path traversal
+        if not _PROJECT_RE.match(project):
+            return f"Invalid project name: {project}"
+
         state_dir_path = Path(state_dir).expanduser()
         state_file = state_dir_path / f"state-{project}.json"
         if not state_file.exists():
             return f"No session state for '{project}'"
-        with open(state_file) as f:
-            state = json.load(f)
+        try:
+            with open(state_file) as f:
+                state = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return f"Corrupted session state for '{project}'"
         return json.dumps(state, indent=2, ensure_ascii=False)
 
     @mcp.resource("log://{project}")
@@ -41,12 +57,18 @@ def register_resources(mcp: FastMCP):
 
         URI: log://my-project
         """
+        if not _PROJECT_RE.match(project):
+            return f"Invalid project name: {project}"
+
         state_dir_path = Path(state_dir).expanduser()
         state_file = state_dir_path / f"state-{project}.json"
         if not state_file.exists():
             return f"No session log for '{project}'"
-        with open(state_file) as f:
-            state = json.load(f)
+        try:
+            with open(state_file) as f:
+                state = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return f"Corrupted session log for '{project}'"
         log_entries = state.get("log", [])
         if not log_entries:
             return f"No activity log for '{project}'"

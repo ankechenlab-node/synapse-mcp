@@ -1,8 +1,8 @@
 # Synapse MCP
 
-Universal MCP server for code development pipeline and knowledge management.
+**Where AI agents remember, plan, and ship — without losing context.**
 
-通用 MCP 服务器，一体化完成代码开发流水线与知识管理。
+一个让 AI 代理拥有持久记忆、结构化思考和端到端交付能力的 MCP 服务器。
 
 ---
 
@@ -12,29 +12,111 @@ Universal MCP server for code development pipeline and knowledge management.
 
 ## English
 
-### Features
+### The Problem
 
-**Session Management** — Create, track, and archive development sessions across projects.
+Today's AI coding assistants are brilliant but amnesiac. They forget what they built between sessions, lose track of why decisions were made, and treat every request as if it's the first conversation. You end up repeating context, re-explaining architecture, and manually tracking what stage you're at.
 
-**Pipeline Execution** — Multi-stage code delivery pipeline (REQ → ARCH → DEV → INT → QA → DEPLOY) with real-time progress reporting via MCP Tasks API.
+**Synapse changes that.** It gives AI agents the infrastructure they need to persist across sessions — structured memory, disciplined engineering process, and a living knowledge base that grows with every interaction.
 
-**Knowledge Management** — Initialize wikis, ingest content, query knowledge, and run health checks.
+### What Makes Synapse Different
 
-**URI Resources** — Direct access to wiki pages and session state via `wiki://`, `state://`, `log://` URIs.
+**Three pillars, one server:**
 
-**Prompt Templates** — Built-in templates for pipeline stages and wiki pages.
+```
+  MEMORY ──────── PROCESS ──────── KNOWLEDGE
+  Session state   6-stage pipe    Living wiki
+  Never forget    Quality gates   Self-growing
+  Cross-project   Contract-first  Always queryable
+```
+
+**1. Persistent Session Memory** — Development sessions survive restarts, crashes, and coffee breaks. Every task, decision, and timestamp is atomically persisted. Pick up exactly where you left off, days or weeks later.
+
+**2. Engineering Pipeline** — Natural language becomes structured delivery: requirements flow through architecture with contract generation, implementation, integration, adversarial QA, and deployment. Each stage must pass validation before the next begins. No shortcuts.
+
+**3. Living Knowledge Base** — Initialize wikis, ingest any content, query with natural language. The knowledge base grows with every project, creating institutional memory that outlasts any single session.
+
+### The Architecture
+
+Synapse is the **infrastructure layer** of the Synapse ecosystem — the persistent backbone that connects the orchestration brain ([synapse-brain](https://github.com/ankechenlab-node/synapse-brain)) with specialized execution skills ([synapse-code](https://github.com/ankechenlab-node/synapse-code), [synapse-wiki](https://github.com/ankechenlab-node/synapse-wiki)).
+
+```
+┌──────────────────────────────────────────────┐
+│              MCP Client (you)                 │
+│    Claude Desktop / Cursor / Claude Code      │
+└─────────────────┬────────────────────────────┘
+                  │ "Build a REST API with auth"
+                  ▼
+┌──────────────────────────────────────────────┐
+│           Synapse MCP Server                  │
+│                                               │
+│  MEMORY   session_create  ← "remember this"  │
+│           session_status  ← "where are we?"  │
+│           session_archive ← "ship & store"   │
+│                                               │
+│  PROCESS  pipeline_run    ← "execute plan"   │
+│           pipeline_status ← "how's it going" │
+│                                               │
+│  KNOWLEDGE wiki_init     ← "new workspace"   │
+│           wiki_ingest    ← "learn this"      │
+│           wiki_query     ← "what do we know" │
+│                                               │
+│  URI      wiki:// state:// log://  ← direct   │
+└─────────────────┬────────────────────────────┘
+                  │
+         ┌────────┼────────┐
+         ▼        ▼        ▼
+    ~/.synapse/  Pipeline  Wiki files
+    (atomic)    (stages)  (growing)
+```
+
+### MCP Tools (12)
+
+#### Session Management — Never Lose Context
+| Tool | Description |
+|------|-------------|
+| `session_create` | Start a tracked development session |
+| `session_status` | See progress, tasks, and decisions at a glance |
+| `session_list` | Browse all sessions across projects |
+| `session_save` | Checkpoint state with atomic persistence |
+| `session_archive` | Store completed work with timestamps |
+
+#### Pipeline Execution — Discipline Built In
+| Tool | Description |
+|------|-------------|
+| `pipeline_run` | Execute REQ → ARCH → DEV → INT → QA → DEPLOY with live progress |
+| `pipeline_status` | Check which stage passed, which is running |
+| `pipeline_stages` | See what each stage validates |
+
+#### Knowledge Management — Institutional Memory
+| Tool | Description |
+|------|-------------|
+| `wiki_init` | Create a structured knowledge workspace |
+| `wiki_ingest` | Feed it files, directories, or raw text |
+| `wiki_query` | Ask questions in natural language |
+| `wiki_lint` | Verify knowledge integrity |
+
+### MCP Resources (3 URI Schemes)
+
+| URI | Purpose |
+|-----|---------|
+| `wiki://{path}` | Read any wiki page directly |
+| `state://{project}` | Access session state as JSON |
+| `log://{project}` | View activity timeline |
+
+### MCP Prompts (2 Templates)
+
+| Prompt | Purpose |
+|--------|---------|
+| `pipeline_template` | Structured prompt for each pipeline stage |
+| `wiki_page_template` | Consistent wiki page formats |
 
 ### Quick Start
 
-#### Via uv (recommended)
-
 ```bash
-uvx synapse-mcp
-```
+# Via uv (recommended)
+uvx --from synapse-mcp synapse-mcp-server
 
-#### Via pip
-
-```bash
+# Via pip
 pip install synapse-mcp
 python -m synapse_mcp.server
 ```
@@ -66,87 +148,44 @@ claude mcp add synapse -- uv run --from synapse-mcp synapse-mcp-server
 python -m synapse_mcp.server --transport http --port 8000
 ```
 
-### MCP Tools
-
-| Tool | Description |
-|------|-------------|
-| `session_create` | Create a new development session |
-| `session_status` | Check session progress and tasks |
-| `session_list` | List all sessions |
-| `session_save` | Force-save session state |
-| `session_archive` | Archive a completed session |
-| `pipeline_run` | Execute pipeline stages with progress |
-| `pipeline_status` | Check pipeline run status |
-| `pipeline_stages` | List available pipeline stages |
-| `wiki_init` | Initialize a wiki knowledge base |
-| `wiki_ingest` | Ingest content into wiki |
-| `wiki_query` | Query wiki with natural language |
-| `wiki_lint` | Run wiki health check |
-
-### MCP Resources
-
-| URI Pattern | Description |
-|-------------|-------------|
-| `wiki://{path}` | Read wiki page (e.g., `wiki://CLAUDE.md`) |
-| `state://{project}` | Read session state JSON |
-| `log://{project}` | Read session activity log |
-
-### MCP Prompts
-
-| Prompt | Description |
-|--------|-------------|
-| `pipeline_template` | Get prompt for pipeline stage (REQ/ARCH/DEV/INT/QA) |
-| `wiki_page_template` | Get template for wiki page (concept/decision/guide) |
-
-### Architecture
-
-```
-┌─────────────────────────────────────┐
-│        MCP Client (any host)         │
-│  Claude Desktop / Cursor / Claude Code│
-└──────────────┬──────────────────────┘
-               │ stdio / http
-               ▼
-┌─────────────────────────────────────┐
-│       Synapse MCP Server             │
-│  Tools: session/pipeline/wiki        │
-│  Resources: wiki:// state:// log://  │
-│  Prompts: pipeline/wiki templates    │
-│  State: ~/.synapse/ (persistent)     │
-└──────────────┬──────────────────────┘
-               │
-      ┌────────┼────────┐
-      ▼        ▼        ▼
-  Pipeline   Wiki    State (JSON)
-```
-
 ---
 
 ## 中文
 
-### 功能特性
+### 问题所在
 
-**会话管理** — 创建、追踪和归档跨项目的开发会话状态。
+今天的 AI 编程助手才华横溢却患有"失忆症"。它们在会话之间遗忘已构建的内容，丢失决策背后的原因，把每次请求都当作第一次对话。你不得不重复上下文、重新解释架构、手动跟踪进度。
 
-**流水线执行** — 多阶段代码交付流水线（REQ → ARCH → DEV → INT → QA → DEPLOY），通过 MCP Tasks API 实时报告进度。
+**Synapse 改变了这一切。** 它为 AI 代理提供了跨会话持久化的基础设施——结构化的记忆、严谨的工程流程、以及随每次交互共同成长的知识库。
 
-**知识管理** — 初始化知识库、摄取内容、智能查询、健康检查。
+### Synapse 的独特之处
 
-**URI 资源** — 通过 `wiki://`、`state://`、`log://` URI 直接访问 wiki 页面和会话状态。
+**三大支柱，一个服务器：**
 
-**提示词模板** — 内置流水线阶段和 wiki 页面的提示词模板。
+```
+  记忆 ──────── 流程 ──────── 知识
+  会话状态      6 阶段流水线   活体 Wiki
+  永不遗忘      质量门禁       自我成长
+  跨项目关联    契约驱动       随时可查
+```
+
+**1. 持久化会话记忆** — 开发会话在重启、崩溃、甚至隔天之后依然完整。每个任务、决策、时间戳都通过原子写入持久化。精确回到上次离开的地方，无论过了多久。
+
+**2. 工程化流水线** — 自然语言驱动结构化交付：需求经过架构设计（含契约生成）、实现、集成、对抗性测试、部署。每个阶段必须通过校验才能进入下一阶段。没有捷径。
+
+**3. 活体知识库** — 初始化知识空间，摄入任意内容，用自然语言查询。知识库随每个项目增长，形成超越单次会话的组织记忆。
+
+### 架构定位
+
+Synapse 是 Synapse 生态系统的**基础设施层**——连接编排大脑 ([synapse-brain](https://github.com/ankechenlab-node/synapse-brain)) 与专业执行技能 ([synapse-code](https://github.com/ankechenlab-node/synapse-code), [synapse-wiki](https://github.com/ankechenlab-node/synapse-wiki)) 的持久化骨干。
 
 ### 快速开始
 
-#### 使用 uv（推荐）
-
 ```bash
-uvx synapse-mcp
-```
+# 使用 uv（推荐）
+uvx --from synapse-mcp synapse-mcp-server
 
-#### 使用 pip
-
-```bash
+# 使用 pip
 pip install synapse-mcp
 python -m synapse_mcp.server
 ```
@@ -178,68 +217,14 @@ claude mcp add synapse -- uv run --from synapse-mcp synapse-mcp-server
 python -m synapse_mcp.server --transport http --port 8000
 ```
 
-### MCP 工具
-
-| 工具 | 说明 |
-|------|------|
-| `session_create` | 创建新的开发会话 |
-| `session_status` | 查看会话进度和任务 |
-| `session_list` | 列出所有会话 |
-| `session_save` | 强制保存会话状态 |
-| `session_archive` | 归档已完成的会话 |
-| `pipeline_run` | 执行流水线阶段，带进度报告 |
-| `pipeline_status` | 查看流水线运行状态 |
-| `pipeline_stages` | 列出可用的流水线阶段 |
-| `wiki_init` | 初始化知识库 |
-| `wiki_ingest` | 摄取内容到知识库 |
-| `wiki_query` | 自然语言查询知识库 |
-| `wiki_lint` | 知识库健康检查 |
-
-### MCP 资源
-
-| URI 模式 | 说明 |
-|---------|------|
-| `wiki://{路径}` | 读取 wiki 页面（如 `wiki://CLAUDE.md`） |
-| `state://{项目}` | 读取会话状态 JSON |
-| `log://{项目}` | 读取会话活动日志 |
-
-### MCP 提示词
-
-| 提示词 | 说明 |
-|--------|------|
-| `pipeline_template` | 获取流水线阶段提示词（REQ/ARCH/DEV/INT/QA） |
-| `wiki_page_template` | 获取 wiki 页面模板（concept/decision/guide） |
-
-### 架构
-
-```
-┌─────────────────────────────────────┐
-│        MCP 客户端（任意宿主）          │
-│  Claude Desktop / Cursor / Claude Code│
-└──────────────┬──────────────────────┘
-               │ stdio / http
-               ▼
-┌─────────────────────────────────────┐
-│       Synapse MCP Server             │
-│  Tools: session/pipeline/wiki        │
-│  Resources: wiki:// state:// log://  │
-│  Prompts: pipeline/wiki 模板          │
-│  State: ~/.synapse/（持久化）         │
-└──────────────┬──────────────────────┘
-               │
-      ┌────────┼────────┐
-      ▼        ▼        ▼
-  Pipeline   Wiki    State (JSON)
-```
-
 ---
 
 ## Related Projects / 相关项目
 
-- [synapse-brain](https://github.com/ankechenlab-node/synapse-brain) — OpenClaw 持久化编排代理
-- [synapse-code](https://github.com/ankechenlab-node/synapse-code) — 智能代码开发工作流引擎
-- [synapse-wiki](https://github.com/ankechenlab-node/synapse-wiki) — 智能知识库管理系统
+- [synapse-brain](https://github.com/ankechenlab-node/synapse-brain) — OpenClaw 持久化编排代理，Synapse 的"大脑"
+- [synapse-code](https://github.com/ankechenlab-node/synapse-code) — 智能代码开发工作流引擎，70 项测试全部通过
+- [synapse-wiki](https://github.com/ankechenlab-node/synapse-wiki) — 智能知识管理系统
 
-## License
+## License / 许可
 
 MIT

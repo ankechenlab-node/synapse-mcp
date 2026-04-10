@@ -20,18 +20,20 @@ def register_session_tools(mcp: FastMCP):
         """Create a new development session for a project.
 
         Args:
-            project: Project name/slug
+            project: Project name (alphanumeric, hyphens, underscores only)
             title: Session title describing the work
             mode: Session mode (standalone, lite, full, parallel)
         """
         mgr = StateManager()
-        state = mgr.create_session(project, title, mode)
+        result = mgr.create_session(project, title, mode)
+        if isinstance(result, str):  # error message
+            return f"Error: {result}"
         return (
             f"Session created for '{project}'\n"
             f"Title: {title}\n"
             f"Mode: {mode}\n"
-            f"Created: {state['created_at']}\n"
-            f"Status: {state['status']}"
+            f"Created: {result['created_at']}\n"
+            f"Status: {result['status']}"
         )
 
     @mcp.tool(annotations=ToolAnnotations(
@@ -45,7 +47,7 @@ def register_session_tools(mcp: FastMCP):
         """Get current session status for a project.
 
         Args:
-            project: Project name/slug
+            project: Project name
         """
         mgr = StateManager()
         state = mgr.get_session(project)
@@ -98,16 +100,16 @@ def register_session_tools(mcp: FastMCP):
         openWorldHint=False,
     ))
     def session_save(project: str) -> str:
-        """Force-save current session state.
+        """Force-save current session state and refresh timestamp.
 
         Args:
-            project: Project name/slug
+            project: Project name
         """
         mgr = StateManager()
         state = mgr.get_session(project)
         if not state:
             return f"No session found for '{project}'."
-        mgr.update_session(project, {"updated_at": state["updated_at"]})
+        mgr.update_session(project, {})  # just refresh timestamp
         return f"Session '{project}' saved."
 
     @mcp.tool(annotations=ToolAnnotations(
@@ -121,7 +123,7 @@ def register_session_tools(mcp: FastMCP):
         """Archive a completed session.
 
         Args:
-            project: Project name/slug
+            project: Project name
         """
         mgr = StateManager()
         state = mgr.archive_session(project)

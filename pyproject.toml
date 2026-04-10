@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "synapse-mcp"
-version = "1.0.0"
-description = "Universal MCP server for code development pipeline and knowledge management"
+version = "1.0.1"
+description = "Persistent MCP server — session memory, engineering pipeline, and living knowledge base for AI agents"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.12"
@@ -28,6 +28,7 @@ dependencies = [
 ]
 
 [project.scripts]
+synapse-mcp = "synapse_mcp.server:main"
 synapse-mcp-server = "synapse_mcp.server:main"
 
 [project.urls]
