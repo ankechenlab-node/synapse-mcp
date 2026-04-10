@@ -24,13 +24,13 @@ def create_server(state_dir: str | None = None) -> FastMCP:
         ),
     )
 
-    # Register tools
-    register_session_tools(mcp)
+    # Register tools with configurable state_dir
+    register_session_tools(mcp, state_dir=state_dir)
     register_pipeline_tools(mcp)
     register_wiki_tools(mcp)
 
     # Register resources
-    register_resources(mcp)
+    register_resources(mcp, state_dir=state_dir)
 
     # Register prompts
     register_prompts(mcp)

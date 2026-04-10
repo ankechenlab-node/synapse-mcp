@@ -10,16 +10,16 @@ from fastmcp import FastMCP
 _PROJECT_RE = re.compile(r'^[a-zA-Z0-9_-]+$')
 
 
-def register_resources(mcp: FastMCP):
+def register_resources(mcp: FastMCP, state_dir: str | None = None):
     """Register wiki:// and state:// URI resources."""
 
     @mcp.resource("wiki://{path}")
-    def wiki_page(path: str, wiki_root: str = "~/.synapse/wiki") -> str:
+    def wiki_page(path: str, wiki_root: str | None = None) -> str:
         """Read a wiki page by path.
 
         URI: wiki://CLAUDE.md, wiki://index.md, wiki://concepts/xyz.md
         """
-        root = Path(wiki_root).expanduser().resolve()
+        root = Path(wiki_root).expanduser().resolve() if wiki_root else Path.cwd()
         target = (root / path).resolve()
 
         # Prevent path traversal
@@ -31,17 +31,16 @@ def register_resources(mcp: FastMCP):
         return target.read_text()
 
     @mcp.resource("state://{project}")
-    def session_state(project: str, state_dir: str = "~/.synapse") -> str:
+    def session_state(project: str) -> str:
         """Read session state for a project.
 
         URI: state://my-project
         """
-        # Validate project name to prevent path traversal
         if not _PROJECT_RE.match(project):
             return f"Invalid project name: {project}"
 
-        state_dir_path = Path(state_dir).expanduser()
-        state_file = state_dir_path / f"state-{project}.json"
+        sdir = Path(state_dir).expanduser() if state_dir else Path.home() / ".synapse"
+        state_file = sdir / f"state-{project}.json"
         if not state_file.exists():
             return f"No session state for '{project}'"
         try:
@@ -52,7 +51,7 @@ def register_resources(mcp: FastMCP):
         return json.dumps(state, indent=2, ensure_ascii=False)
 
     @mcp.resource("log://{project}")
-    def session_log(project: str, state_dir: str = "~/.synapse") -> str:
+    def session_log(project: str) -> str:
         """Read activity log for a project session.
 
         URI: log://my-project
@@ -60,8 +59,8 @@ def register_resources(mcp: FastMCP):
         if not _PROJECT_RE.match(project):
             return f"Invalid project name: {project}"
 
-        state_dir_path = Path(state_dir).expanduser()
-        state_file = state_dir_path / f"state-{project}.json"
+        sdir = Path(state_dir).expanduser() if state_dir else Path.home() / ".synapse"
+        state_file = sdir / f"state-{project}.json"
         if not state_file.exists():
             return f"No session log for '{project}'"
         try:

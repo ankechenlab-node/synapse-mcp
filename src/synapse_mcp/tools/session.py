@@ -1,12 +1,14 @@
 """MCP Tools: Session management (create, status, list, save, archive)."""
 
+from pathlib import Path
+
 from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from synapse_mcp.state.manager import StateManager
 
 
-def register_session_tools(mcp: FastMCP):
+def register_session_tools(mcp: FastMCP, state_dir: str | None = None):
     """Register session management tools."""
 
     @mcp.tool(annotations=ToolAnnotations(
@@ -24,7 +26,7 @@ def register_session_tools(mcp: FastMCP):
             title: Session title describing the work
             mode: Session mode (standalone, lite, full, parallel)
         """
-        mgr = StateManager()
+        mgr = StateManager(state_dir=state_dir)
         result = mgr.create_session(project, title, mode)
         if isinstance(result, str):  # error message
             return f"Error: {result}"
@@ -49,7 +51,7 @@ def register_session_tools(mcp: FastMCP):
         Args:
             project: Project name
         """
-        mgr = StateManager()
+        mgr = StateManager(state_dir=state_dir)
         state = mgr.get_session(project)
         if not state:
             return f"No active session for '{project}'. Use session_create to start."
@@ -79,7 +81,7 @@ def register_session_tools(mcp: FastMCP):
     ))
     def session_list() -> str:
         """List all sessions across all projects."""
-        mgr = StateManager()
+        mgr = StateManager(state_dir=state_dir)
         sessions = mgr.list_sessions()
         if not sessions:
             return "No sessions found."
@@ -105,12 +107,13 @@ def register_session_tools(mcp: FastMCP):
         Args:
             project: Project name
         """
-        mgr = StateManager()
+        mgr = StateManager(state_dir=state_dir)
         state = mgr.get_session(project)
         if not state:
             return f"No session found for '{project}'."
-        mgr.update_session(project, {})  # just refresh timestamp
-        return f"Session '{project}' saved."
+        # Actually persist the current state with atomic write
+        mgr.update_session(project, state)
+        return f"Session '{project}' saved to disk."
 
     @mcp.tool(annotations=ToolAnnotations(
         title="Archive Session",
@@ -125,7 +128,7 @@ def register_session_tools(mcp: FastMCP):
         Args:
             project: Project name
         """
-        mgr = StateManager()
+        mgr = StateManager(state_dir=state_dir)
         state = mgr.archive_session(project)
         if not state:
             return f"No session found for '{project}'."

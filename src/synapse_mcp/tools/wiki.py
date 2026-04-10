@@ -9,18 +9,6 @@ from mcp.types import ToolAnnotations
 # Max file size for ingest (10MB)
 _MAX_INGEST_SIZE = 10 * 1024 * 1024
 
-# Wiki script paths — resolved at runtime
-_WIKI_SCRIPTS = Path.home() / ".claude" / "skills" / "synapse-wiki" / "scripts"
-
-
-def _wiki_script(name: str) -> str:
-    """Get path to a wiki script, or fallback to bundled version."""
-    script = _WIKI_SCRIPTS / f"{name}.py"
-    if script.exists():
-        return str(script)
-    # Bundled fallback
-    return str(Path(__file__).parent.parent.parent / "scripts" / f"wiki_{name}.py")
-
 
 def register_wiki_tools(mcp: FastMCP):
     """Register wiki knowledge management tools."""
@@ -102,7 +90,7 @@ def register_wiki_tools(mcp: FastMCP):
             # Ingest raw text — append to knowledge log
             log_file = wiki_path / "log.md"
             with open(log_file, "a") as f:
-                f.write(f"\n## Ingested text\n\n{source[:500]}...\n")
+                f.write(f"\n## Ingested text\n\n{source[:2000]}...\n")
             return f"Text ingested ({len(source)} chars) → {log_file}"
 
         if not source_path.exists():
@@ -115,7 +103,7 @@ def register_wiki_tools(mcp: FastMCP):
             content = source_path.read_text()
             log_file = wiki_path / "log.md"
             with open(log_file, "a") as f:
-                f.write(f"\n## Ingested: {source_path.name}\n\n{content[:300]}...\n")
+                f.write(f"\n## Ingested: {source_path.name}\n\n{content[:2000]}...\n")
             return f"File ingested: {source_path.name} ({len(content)} chars)"
 
         if source_path.is_dir():
@@ -123,10 +111,10 @@ def register_wiki_tools(mcp: FastMCP):
             count = 0
             log_file = wiki_path / "log.md"
             with open(log_file, "a") as f:
-                for fp in files[:20]:
+                for fp in files[:100]:
                     try:
                         content = fp.read_text()
-                        f.write(f"\n## Ingested: {fp.name}\n\n{content[:200]}...\n")
+                        f.write(f"\n## Ingested: {fp.name}\n\n{content[:1000]}...\n")
                         count += 1
                     except (IOError, UnicodeDecodeError):
                         continue  # skip unreadable files

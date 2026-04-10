@@ -65,6 +65,18 @@ Rules:
 Architecture: {architecture}
 Contracts: {contracts}""",
 
+    "INT": """You are an integration engineer. Wire all components together.
+
+Tasks:
+1. Verify all module interfaces match the contracts
+2. Resolve integration conflicts
+3. Ensure end-to-end data flow works
+4. Test cross-module communication
+
+Architecture: {architecture}
+Contracts: {contracts}
+Existing implementations: {implementations}""",
+
     "QA": """You are a QA engineer. Perform adversarial testing on the implementation.
 
 Test categories:
@@ -87,7 +99,21 @@ Report format:
 
 ## Recommendations
 - ...
-```""",
+```
+
+Implementation: {implementation}""",
+
+    "DEPLOY": """You are a DevOps engineer. Package and deploy the application.
+
+Tasks:
+1. Create deployment manifest
+2. Set up environment configuration
+3. Run pre-deployment checks
+4. Package the application
+5. Generate deployment instructions
+
+Deployment target: {target}
+Application: {implementation}""",
 }
 
 WIKI_PAGE_TEMPLATES = {
