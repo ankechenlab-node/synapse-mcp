@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "synapse-mcp"
+version = "1.0.0"
+description = "Universal MCP server for code development pipeline and knowledge management"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.12"
+authors = [
+    {name = "ankechenlab-node", email = "ankechenlab@gmail.com"},
+]
+keywords = ["mcp", "code-generation", "knowledge-base", "pipeline", "synapse"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "fastmcp>=2.0.0",
+]
+
+[project.scripts]
+synapse-mcp-server = "synapse_mcp.server:main"
+
+[project.urls]
+Homepage = "https://github.com/ankechenlab-node/synapse-mcp"
+Repository = "https://github.com/ankechenlab-node/synapse-mcp"
+Issues = "https://github.com/ankechenlab-node/synapse-mcp/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
