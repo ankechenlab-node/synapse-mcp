@@ -7,6 +7,8 @@ from fastmcp import FastMCP
 from synapse_mcp.tools.session import register_session_tools
 from synapse_mcp.tools.pipeline import register_pipeline_tools
 from synapse_mcp.tools.wiki import register_wiki_tools
+from synapse_mcp.tools.gitnexus import register_gitnexus_tools
+from synapse_mcp.tools.notifier import register_notifier_tools
 from synapse_mcp.resources.wiki import register_resources
 from synapse_mcp.prompts.templates import register_prompts
 
@@ -28,6 +30,8 @@ def create_server(state_dir: str | None = None) -> FastMCP:
     register_session_tools(mcp, state_dir=state_dir)
     register_pipeline_tools(mcp)
     register_wiki_tools(mcp)
+    register_gitnexus_tools(mcp)
+    register_notifier_tools(mcp)
 
     # Register resources
     register_resources(mcp, state_dir=state_dir)
