@@ -3,6 +3,7 @@ state_manager.py — Session state persistence for Synapse MCP
 
 Mirrors synapse-brain's state_manager.py logic.
 Stores state in ~/.synapse/state-{project}.json
+Correlations in ~/.synapse/correlations.json
 """
 
 import json
@@ -14,6 +15,16 @@ from pathlib import Path
 
 # Valid project name pattern: alphanumeric, hyphens, underscores
 _PROJECT_RE = re.compile(r'^[a-zA-Z0-9_-]+$')
+
+# Correlation types
+CORRELATION_TYPES = {
+    "auth": "Authentication patterns (JWT, OAuth, session, etc.)",
+    "server": "Server/DB connection sharing (same host, cluster, etc.)",
+    "dependency": "Shared libraries, APIs, or microservices",
+    "architecture": "Similar architectural patterns (MVC, event-driven, etc.)",
+    "knowledge": "Shared wiki pages, decisions, or guides",
+    "custom": "User-defined correlation",
+}
 
 
 def _validate_project(project: str) -> str | None:
@@ -51,6 +62,10 @@ class StateManager:
             except OSError:
                 pass
             raise
+
+    # =========================================================================
+    # Session CRUD
+    # =========================================================================
 
     def create_session(self, project: str, title: str, mode: str = "standalone") -> dict | str:
         """Create a new session state. Returns state dict or error message."""
@@ -134,15 +149,36 @@ class StateManager:
                 return state
         return None
 
-    def list_sessions(self) -> list[dict]:
-        """List all session states, skipping corrupted files."""
+    def list_sessions(self, status: str | None = None, mode: str | None = None,
+                      search: str | None = None) -> list[dict]:
+        """List session states, with optional filtering.
+
+        Args:
+            status: Filter by status (active, archived)
+            mode: Filter by mode (standalone, lite, full, parallel)
+            search: Filter by keyword in project name or title
+        """
         sessions = []
         for f in sorted(self.state_dir.glob("state-*.json")):
             try:
                 with open(f) as fh:
-                    sessions.append(json.load(fh))
+                    state = json.load(fh)
             except (json.JSONDecodeError, IOError):
                 continue  # skip corrupted file
+
+            # Apply filters
+            if status and state.get("status") != status:
+                continue
+            if mode and state.get("mode") != mode:
+                continue
+            if search:
+                search_lower = search.lower()
+                project_match = search_lower in state.get("project", "").lower()
+                title_match = search_lower in state.get("title", "").lower()
+                if not (project_match or title_match):
+                    continue
+
+            sessions.append(state)
         return sessions
 
     def archive_session(self, project: str) -> dict | None:
@@ -154,6 +190,111 @@ class StateManager:
         state["archived_at"] = datetime.now().isoformat()
         self._save(project, state)
         return state
+
+    # =========================================================================
+    # Cross-project correlations
+    # =========================================================================
+
+    def _correlations_file(self) -> Path:
+        return self.state_dir / "correlations.json"
+
+    def _load_correlations(self) -> dict:
+        """Load correlations, or return empty structure."""
+        cf = self._correlations_file()
+        if cf.exists():
+            try:
+                with open(cf) as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError):
+                pass
+        return {"links": [], "updated_at": None}
+
+    def _save_correlations(self, data: dict):
+        """Atomically save correlations."""
+        data["updated_at"] = datetime.now().isoformat()
+        self._atomic_save(self._correlations_file(), data)
+
+    def correlate_projects(self, source: str, target: str,
+                           corr_type: str, description: str = "") -> dict | str:
+        """Create a correlation link between two projects.
+
+        Args:
+            source: Source project name
+            target: Target project name
+            corr_type: Correlation type (auth, server, dependency, architecture, knowledge, custom)
+            description: Human-readable description of the correlation
+        """
+        err = _validate_project(source)
+        if err:
+            return err
+        err = _validate_project(target)
+        if err:
+            return err
+        if corr_type not in CORRELATION_TYPES:
+            return f"Invalid correlation type: '{corr_type}'. Valid: {', '.join(CORRELATION_TYPES.keys())}"
+
+        data = self._load_correlations()
+
+        # Check for duplicate
+        for link in data.get("links", []):
+            if (link["source"] == source and link["target"] == target
+                    and link["type"] == corr_type):
+                return f"Correlation already exists: {source} → {target} ({corr_type})"
+
+        link = {
+            "source": source,
+            "target": target,
+            "type": corr_type,
+            "description": description or CORRELATION_TYPES[corr_type],
+            "created_at": datetime.now().isoformat(),
+        }
+        data.setdefault("links", []).append(link)
+        self._save_correlations(data)
+        return link
+
+    def remove_correlation(self, source: str, target: str, corr_type: str) -> str:
+        """Remove a correlation link."""
+        data = self._load_correlations()
+        before = len(data.get("links", []))
+        data["links"] = [
+            l for l in data.get("links", [])
+            if not (l["source"] == source and l["target"] == target and l["type"] == corr_type)
+        ]
+        if len(data["links"]) == before:
+            return "Correlation not found"
+        self._save_correlations(data)
+        return f"Correlation removed: {source} → {target} ({corr_type})"
+
+    def get_correlations(self, project: str | None = None,
+                         corr_type: str | None = None) -> dict:
+        """Get correlations, optionally filtered by project or type."""
+        data = self._load_correlations()
+        links = data.get("links", [])
+
+        if project:
+            links = [l for l in links if l["source"] == project or l["target"] == project]
+        if corr_type:
+            links = [l for l in links if l["type"] == corr_type]
+
+        return {"links": links, "total": len(links), "updated_at": data.get("updated_at")}
+
+    def get_related_projects(self, project: str) -> list[dict]:
+        """Get all projects related to a given project, grouped by correlation type."""
+        data = self._load_correlations()
+        related: dict[str, list[str]] = {}
+
+        for link in data.get("links", []):
+            if link["source"] == project:
+                related.setdefault(link["type"], []).append(link["target"])
+            elif link["target"] == project:
+                related.setdefault(link["type"], []).append(link["source"])
+
+        return [{"type": t, "type_desc": CORRELATION_TYPES.get(t, t), "projects": projects}
+                for t, projects in related.items()]
+
+    # =========================================================================
+    # Internal
+    # =========================================================================
 
     def _save(self, project: str, state: dict):
         """Atomically save state to disk."""

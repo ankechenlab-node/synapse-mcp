@@ -1,11 +1,11 @@
-"""MCP Tools: Session management (create, status, list, save, archive)."""
+"""MCP Tools: Session management (create, status, list, save, archive, correlate)."""
 
 from pathlib import Path
 
 from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
-from synapse_mcp.state.manager import StateManager
+from synapse_mcp.state.manager import StateManager, CORRELATION_TYPES
 
 
 def register_session_tools(mcp: FastMCP, state_dir: str | None = None):
@@ -79,18 +79,38 @@ def register_session_tools(mcp: FastMCP, state_dir: str | None = None):
         idempotentHint=True,
         openWorldHint=False,
     ))
-    def session_list() -> str:
-        """List all sessions across all projects."""
+    def session_list(
+        status: str | None = None,
+        mode: str | None = None,
+        search: str | None = None,
+    ) -> str:
+        """List sessions across projects, with optional filtering.
+
+        Args:
+            status: Filter by status (active, archived)
+            mode: Filter by mode (standalone, lite, full, parallel)
+            search: Filter by keyword in project name or title
+        """
         mgr = StateManager(state_dir=state_dir)
-        sessions = mgr.list_sessions()
+        sessions = mgr.list_sessions(status=status, mode=mode, search=search)
         if not sessions:
-            return "No sessions found."
+            filters = []
+            if status: filters.append(f"status={status}")
+            if mode: filters.append(f"mode={mode}")
+            if search: filters.append(f"search='{search}'")
+            filter_str = f" (filters: {', '.join(filters)})" if filters else ""
+            return f"No sessions found{filter_str}."
 
         lines = [f"Sessions ({len(sessions)}):", ""]
         for s in sessions:
+            related = mgr.get_related_projects(s["project"])
+            rel_str = ""
+            if related:
+                rel_projects = [p for r in related for p in r["projects"]]
+                rel_str = f" → linked: {', '.join(rel_projects)}"
             lines.append(
                 f"  {s['project']}: {s.get('title', 'Untitled')} "
-                f"({s.get('status', 'unknown')})"
+                f"({s.get('mode', '?')}, {s.get('status', '?')}){rel_str}"
             )
         return "\n".join(lines)
 
@@ -111,7 +131,6 @@ def register_session_tools(mcp: FastMCP, state_dir: str | None = None):
         state = mgr.get_session(project)
         if not state:
             return f"No session found for '{project}'."
-        # Actually persist the current state with atomic write
         mgr.update_session(project, state)
         return f"Session '{project}' saved to disk."
 
@@ -133,3 +152,119 @@ def register_session_tools(mcp: FastMCP, state_dir: str | None = None):
         if not state:
             return f"No session found for '{project}'."
         return f"Session '{project}' archived at {state.get('archived_at', 'N/A')}."
+
+    @mcp.tool(annotations=ToolAnnotations(
+        title="Correlate Projects",
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    ))
+    def session_correlate(
+        source: str,
+        target: str,
+        corr_type: str,
+        description: str = "",
+    ) -> str:
+        """Link two projects with a correlation.
+
+        Correlation types:
+        - **auth**: Shared authentication patterns (JWT, OAuth, session)
+        - **server**: Shared server/DB connections (same host, cluster)
+        - **dependency**: Shared libraries, APIs, or microservices
+        - **architecture**: Similar architectural patterns (MVC, event-driven)
+        - **knowledge**: Shared wiki pages, decisions, or guides
+        - **custom**: User-defined correlation
+
+        Args:
+            source: Source project name
+            target: Target project name
+            corr_type: Correlation type (auth, server, dependency, architecture, knowledge, custom)
+            description: Human-readable description (optional, uses type default if omitted)
+        """
+        mgr = StateManager(state_dir=state_dir)
+        result = mgr.correlate_projects(source, target, corr_type, description)
+        if isinstance(result, str) and "already exists" in result:
+            return result
+        if isinstance(result, dict):
+            return (
+                f"Correlation created: {result['source']} ↔ {result['target']}\n"
+                f"Type: {result['type']} ({CORRELATION_TYPES.get(result['type'], '')})\n"
+                f"Description: {result['description']}"
+            )
+        return f"Error: {result}"
+
+    @mcp.tool(annotations=ToolAnnotations(
+        title="Remove Correlation",
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=True,
+        openWorldHint=False,
+    ))
+    def session_uncorrelate(
+        source: str,
+        target: str,
+        corr_type: str,
+    ) -> str:
+        """Remove a correlation link between two projects.
+
+        Args:
+            source: Source project name
+            target: Target project name
+            corr_type: Correlation type
+        """
+        mgr = StateManager(state_dir=state_dir)
+        return mgr.remove_correlation(source, target, corr_type)
+
+    @mcp.tool(annotations=ToolAnnotations(
+        title="Project Relations",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    ))
+    def session_relations(project: str) -> str:
+        """Show all correlations for a project.
+
+        Args:
+            project: Project name
+        """
+        mgr = StateManager(state_dir=state_dir)
+        related = mgr.get_related_projects(project)
+        if not related:
+            return f"No correlations found for '{project}'."
+
+        lines = [f"Correlations for '{project}':", ""]
+        for r in related:
+            lines.append(f"  {r['type']} ({r['type_desc']}):")
+            for p in r["projects"]:
+                lines.append(f"    → {p}")
+        return "\n".join(lines)
+
+    @mcp.tool(annotations=ToolAnnotations(
+        title="All Correlations",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    ))
+    def session_correlations(
+        corr_type: str | None = None,
+    ) -> str:
+        """List all cross-project correlations.
+
+        Args:
+            corr_type: Optional filter by type (auth, server, dependency, architecture, knowledge, custom)
+        """
+        mgr = StateManager(state_dir=state_dir)
+        data = mgr.get_correlations(corr_type=corr_type)
+        links = data.get("links", [])
+        if not links:
+            filter_str = f" (type={corr_type})" if corr_type else ""
+            return f"No correlations found{filter_str}."
+
+        lines = [f"Correlations ({len(links)}):", ""]
+        for l in links:
+            desc = f" — {l['description']}" if l.get("description") else ""
+            lines.append(f"  {l['source']} ↔ {l['target']} [{l['type']}]{desc}")
+        return "\n".join(lines)

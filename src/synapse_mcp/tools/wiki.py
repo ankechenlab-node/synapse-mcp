@@ -8,6 +8,7 @@ from mcp.types import ToolAnnotations
 
 # Max file size for ingest (10MB)
 _MAX_INGEST_SIZE = 10 * 1024 * 1024
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".webp"}
 
 
 def register_wiki_tools(mcp: FastMCP):
@@ -100,6 +101,34 @@ def register_wiki_tools(mcp: FastMCP):
             # Check file size
             if source_path.stat().st_size > _MAX_INGEST_SIZE:
                 return f"File too large: {source_path.name} ({source_path.stat().st_size / 1024 / 1024:.1f}MB > 10MB limit)"
+
+            ext = source_path.suffix.lower()
+
+            # PDF extraction
+            if ext == ".pdf":
+                text, error = _extract_pdf(source_path)
+                if error:
+                    return f"PDF ingestion failed: {source_path.name}\n{error}"
+                if not text:
+                    return f"PDF contains no extractable text: {source_path.name}"
+                log_file = wiki_path / "log.md"
+                with open(log_file, "a") as f:
+                    f.write(f"\n## Ingested PDF: {source_path.name}\n\n{text[:2000]}...\n")
+                return f"PDF ingested: {source_path.name} ({len(text)} chars)"
+
+            # Image OCR
+            if ext in _IMAGE_EXTENSIONS:
+                text, error = _extract_image_text(source_path)
+                if error:
+                    return f"Image OCR failed: {source_path.name}\n{error}"
+                if not text:
+                    return f"Image contains no readable text: {source_path.name}"
+                log_file = wiki_path / "log.md"
+                with open(log_file, "a") as f:
+                    f.write(f"\n## Ingested image (OCR): {source_path.name}\n\n{text[:2000]}...\n")
+                return f"Image OCR'd: {source_path.name} ({len(text)} chars)"
+
+            # Regular text file
             content = source_path.read_text()
             log_file = wiki_path / "log.md"
             with open(log_file, "a") as f:
@@ -240,25 +269,45 @@ def register_wiki_tools(mcp: FastMCP):
 
 
 def _extract_snippet(content: str, keywords: list[str], limit: int = 400) -> str:
-    """Extract a relevant snippet around the first keyword match."""
+    """Extract a relevant snippet from content around the first keyword match."""
     lower = content.lower()
-    positions = []
     for kw in keywords:
-        pos = lower.find(kw)
-        if pos >= 0:
-            positions.append(pos)
+        idx = lower.find(kw)
+        if idx >= 0:
+            start = max(0, idx - 50)
+            end = min(len(content), start + limit)
+            prefix = "..." if start > 0 else ""
+            suffix = "..." if end < len(content) else ""
+            return f"{prefix}{content[start:end]}{suffix}"
+    return content[:limit] + ("..." if len(content) > limit else "")
 
-    if not positions:
-        return content[:limit]
 
-    # Use the earliest match
-    start = min(positions)
-    # Expand around the match
-    snippet_start = max(0, start - 50)
-    snippet_end = min(len(content), start + limit)
-    snippet = content[snippet_start:snippet_end]
-    if snippet_start > 0:
-        snippet = "..." + snippet
-    if snippet_end < len(content):
-        snippet += "..."
-    return snippet
+def _extract_pdf(source_path: Path) -> tuple[str, str | None]:
+    """Extract text from a PDF file. Returns (text, error)."""
+    try:
+        import pdfplumber
+        text_parts = []
+        with pdfplumber.open(source_path) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text_parts.append(page_text)
+        return ("\n".join(text_parts), None)
+    except ImportError:
+        return ("", "pdfplumber not installed. Run: pip install pdfplumber")
+    except Exception as e:
+        return ("", f"PDF extraction failed: {e}")
+
+
+def _extract_image_text(source_path: Path) -> tuple[str, str | None]:
+    """Extract text from an image via OCR. Returns (text, error)."""
+    try:
+        import pytesseract
+        from PIL import Image
+        img = Image.open(source_path)
+        text = pytesseract.image_to_string(img, lang="eng+chi_sim")
+        return (text, None)
+    except ImportError:
+        return ("", "pytesseract/PIL not installed. Run: pip install pytesseract pillow")
+    except Exception as e:
+        return ("", f"OCR failed: {e}")
